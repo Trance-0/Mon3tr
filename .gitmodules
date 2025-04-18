@@ -5,5 +5,5 @@
 
 [submodule "smooth-diffusion"]
 	path = smooth-diffusion
-	url = https://github.com/SHI-Labs/Smooth-Diffusion?tab=MIT-1-ov-file
+	url = https://github.com/SHI-Labs/Smooth-Diffusion
 	branch = main
