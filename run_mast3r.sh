@@ -1,0 +1,1 @@
+python mast3r/demo.py  --weights mast3r/checkpoints/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric.pth
