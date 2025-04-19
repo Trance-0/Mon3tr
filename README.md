@@ -4,6 +4,10 @@ Matching and smOoth difussioN for 3d reconsTRuction
 
 This is just a fun project combining [MASt3R](https://github.com/naver/mast3r) and [Smooth-Diffusion](https://github.com/SHI-Labs/Smooth-Diffusion). To test if we can use 2D image generation model to improve 3D reconstruction.
 
+## Team member
+
+Zheyuan Wu <me@trance-0.com>
+
 ## Key Ideas
 
 From limited sample 2D images, generate a 3D scene that matches the 2D images.
