@@ -1,9 +1,23 @@
+import argparse
 import os
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), 'mast3r'))
+
 import torch
-from mast3r.mast3r.model import AsymmetricMASt3R
+from mast3r.model import AsymmetricMASt3R
+from mast3r.demo import get_args_parser as mast3r_get_args_parser
 from PIL import Image
 import numpy as np
 import gradio as gr
+import tempfile
+from contextlib import nullcontext
+
+
+def get_args_parser():
+    parser = mast3r_get_args_parser()
+    # change defaults
+    parser.prog = 'Mon3tr demo'
+    return parser
 
 def load_images(image_files):
     images = []
@@ -45,17 +59,22 @@ def process_images(image_files, model_weights, device='cuda'):
     # Visualize 3D image
     visualize_3d(outputs)
 
-iface = gr.Interface(
-    fn=process_images,
-    inputs=[
-        gr.inputs.File(type="file", label="Upload Images", multiple=True),
-        gr.inputs.Textbox(default='MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric', label="Model Weights"),
-        gr.inputs.Textbox(default='cuda', label="Device")
-    ],
-    outputs=None,
-    title="3D Image Generator",
-    description="Upload images to generate and visualize a 3D representation using the MASt3R model."
-)
+def get_context(tmp_dir):
+    return tempfile.TemporaryDirectory(suffix='_mast3r_gradio_demo') if tmp_dir is None else nullcontext(tmp_dir)
 
 if __name__ == '__main__':
-    iface.launch()
+    args = get_args_parser().parse_args()
+    
+    with get_context(args.tmp_dir) as tmpdirname:
+        iface = gr.Interface(
+            fn=process_images,
+            inputs=[
+                gr.File(label="Upload Images", file_count="multiple"),
+                gr.Textbox(value=args.model_name, label="Model Weights"),
+                gr.Textbox(value=args.device, label="Device")
+            ],
+            outputs=None,
+            title="3D Image Generator",
+            description="Upload images to generate and visualize a 3D representation using the MASt3R model."
+        )
+        iface.launch(share=args.share, server_name=args.server_name, server_port=args.server_port)

@@ -1,9 +1,9 @@
-[submodule "mast3r"]
-	path = mast3r-full
-	url = https://github.com/naver/mast3r
-	branch = main
-
 [submodule "smooth-diffusion"]
 	path = smooth-diffusion
 	url = https://github.com/SHI-Labs/Smooth-Diffusion
+	branch = main
+
+[submodule "mast3r"]
+	path = mast3r
+	url = https://github.com/naver/mast3r
 	branch = main
