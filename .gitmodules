@@ -1,5 +1,5 @@
 [submodule "mast3r"]
-	path = mast3r
+	path = mast3r-full
 	url = https://github.com/naver/mast3r
 	branch = main
 
