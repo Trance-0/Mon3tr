@@ -2,16 +2,27 @@ import argparse
 import os
 import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), 'mast3r'))
+sys.path.append(os.path.join(os.path.join(os.path.dirname(__file__), 'mast3r'),'dust3r'))
 
 import torch
 from mast3r.model import AsymmetricMASt3R
 from mast3r.demo import get_args_parser as mast3r_get_args_parser
+from mon3tr.demo import main_demo
 from PIL import Image
 import numpy as np
 import gradio as gr
 import tempfile
 from contextlib import nullcontext
 
+from mast3r.utils.misc import hash_md5
+
+import mast3r.utils.path_to_dust3r  # noqa
+from dust3r.demo import set_print_with_timestamp
+
+import matplotlib.pyplot as pl
+pl.ion()
+
+torch.backends.cuda.matmul.allow_tf32 = True  # for gpu >= Ampere and pytorch >= 1.12
 
 def get_args_parser():
     parser = mast3r_get_args_parser()
@@ -19,62 +30,34 @@ def get_args_parser():
     parser.prog = 'Mon3tr demo'
     return parser
 
-def load_images(image_files):
-    images = []
-    for img_file in image_files:
-        with Image.open(img_file) as img:
-            images.append(np.array(img))
-    return images
-
-def generate_3d_image(model, images, device='cuda'):
-    model.eval()
-    with torch.no_grad():
-        # Convert images to tensor and move to device
-        image_tensors = [torch.tensor(img).permute(2, 0, 1).unsqueeze(0).to(device) for img in images]
-        # Generate 3D representation
-        outputs = [model(img_tensor) for img_tensor in image_tensors]
-        return outputs
-
-def visualize_3d(outputs):
-    import matplotlib.pyplot as plt
-    from mpl_toolkits.mplot3d import Axes3D
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-    for output in outputs:
-        # Assuming output contains 3D coordinates
-        coords = output.cpu().numpy()
-        ax.scatter(coords[:, 0], coords[:, 1], coords[:, 2])
-    plt.show()
-
-def process_images(image_files, model_weights, device='cuda'):
-    # Load model
-    model = AsymmetricMASt3R.from_pretrained(model_weights).to(device)
-    
-    # Load images
-    images = load_images(image_files)
-    
-    # Generate 3D image
-    outputs = generate_3d_image(model, images, device)
-    
-    # Visualize 3D image
-    visualize_3d(outputs)
-
-def get_context(tmp_dir):
-    return tempfile.TemporaryDirectory(suffix='_mast3r_gradio_demo') if tmp_dir is None else nullcontext(tmp_dir)
-
 if __name__ == '__main__':
-    args = get_args_parser().parse_args()
+    parser = get_args_parser()
+    args = parser.parse_args()
     
+    # change default tmp_dir to the current directory
+    if args.tmp_dir is None:
+        args.tmp_dir = os.path.join(os.path.dirname(__file__), 'tmp')
+
+    set_print_with_timestamp()
+
+    if args.server_name is not None:
+        server_name = args.server_name
+    else:
+        server_name = '0.0.0.0' if args.local_network else '127.0.0.1'
+
+    if args.weights is not None:
+        weights_path = args.weights
+    else:
+        weights_path = "naver/" + args.model_name
+
+    model = AsymmetricMASt3R.from_pretrained(weights_path).to(args.device)
+    chkpt_tag = hash_md5(weights_path)
+
+    def get_context(tmp_dir):
+        return tempfile.TemporaryDirectory(suffix='_mon3tr_gradio_demo') if tmp_dir is None \
+            else nullcontext(tmp_dir)
     with get_context(args.tmp_dir) as tmpdirname:
-        iface = gr.Interface(
-            fn=process_images,
-            inputs=[
-                gr.File(label="Upload Images", file_count="multiple"),
-                gr.Textbox(value=args.model_name, label="Model Weights"),
-                gr.Textbox(value=args.device, label="Device")
-            ],
-            outputs=None,
-            title="3D Image Generator",
-            description="Upload images to generate and visualize a 3D representation using the MASt3R model."
-        )
-        iface.launch(share=args.share, server_name=args.server_name, server_port=args.server_port)
+        cache_path = os.path.join(tmpdirname, chkpt_tag)
+        os.makedirs(cache_path, exist_ok=True)
+        main_demo(cache_path, model, args.retrieval_model, args.device, args.image_size, server_name, args.server_port,
+                  silent=args.silent, share=args.share, gradio_delete_cache=args.gradio_delete_cache)

@@ -1,0 +1,1 @@
+python mon3tr.py --model_name MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric
