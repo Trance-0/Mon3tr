@@ -2,7 +2,7 @@
 
 Matching and smOoth difussioN for 3d reconsTRuction
 
-This is just a fun project combining [MASt3R](https://github.com/naver/mast3r) and [Smooth-Diffusion](https://github.com/SHI-Labs/Smooth-Diffusion). To test if we can use 2D image generation model to improve 3D reconstruction.
+This is an experimental project as Final project of Spring 2025 CSE 559A Computer Vision course at Washington University in St. Louis. It combines [MASt3R](https://github.com/naver/mast3r) and [Smooth-Diffusion](https://github.com/SHI-Labs/Smooth-Diffusion). To test if we can use 2D image generation model to improve 3D reconstruction.
 
 ## Team member
 

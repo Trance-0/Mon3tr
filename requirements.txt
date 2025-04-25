@@ -26,3 +26,4 @@ transformers
 wandb
 xformers
 asmk
+peft
