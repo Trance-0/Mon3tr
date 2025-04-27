@@ -1,2 +1,13 @@
 tmp/*
+mon3tr/tmp/*
 __pycache__
+
+# ignore hidden files
+.DS_Store
+.vscode
+.idea
+.gradio
+
+# ignore change in submodules
+smooth-diffusion/
+mast3r/

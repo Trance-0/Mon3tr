@@ -202,6 +202,15 @@ def _convert_scene_output_to_glb(outfile, imgs, pts3d, mask, focals, cams2world,
             image_bytes = scene.save_image(resolution=(W, H), visible=False)
             img_rendered = Image.open(BytesIO(image_bytes))
             rendered_imgs.append(img_rendered)
+            # create mask for inpainting, mask the non-rendered part
+            mask = np.zeros((H, W), dtype=np.uint8)
+            for i in range(H):
+                for j in range(W):
+                    if img_rendered.getpixel((j, i)) == (255, 255, 255, 255):
+                        mask[i, j] = 255
+            # DEBUG, print out the left upper 10x10 pixels of the image
+            print(f'DEBUG: left upper 10x10 pixels of the image: {[img_rendered.getpixel((i, j)) for i in range(10) for j in range(10)]}')
+            rendered_imgs.append(mask)
         except Exception as e:
             print(f"Render failed: {e}")
     print(f'DEBUG: received outfile: {outfile}')
@@ -404,11 +413,12 @@ def main_demo(tmpdirname, model, retrieval_model, device, image_size, server_nam
                 clean_depth = gradio.Checkbox(value=True, label="Clean-up depthmaps")
                 transparent_cams = gradio.Checkbox(value=True, label="Transparent cameras")
 
-            outmodel = gradio.Model3D()
+            with gradio.Row():
+                outmodel = gradio.Model3D(height="100%")
 
-            outimage = gradio.Image(label='Output image')
+                outimage = gradio.Image(label='Output image', height="100%")
 
-            outgallery = gradio.Gallery(label='Output rendered images', columns=3, height="100%")
+            outgallery = gradio.Gallery(label='Output rendered images', columns=4, height="100%")
 
             # events
             scenegraph_type.change(set_scenegraph_options,
