@@ -10,10 +10,12 @@ import numpy as np
 import trimesh
 
 
-
-sys.path.append(os.path.join(Path(__file__).parent, 'mast3r'))
-sys.path.append(os.path.join(Path(__file__).parent, 'mast3r','dust3r'))
-sys.path.append(os.path.join(Path(__file__).parent, 'smooth-diffusion'))
+ROOT = Path(__file__).parent.resolve()           # folder that holds this script
+sys.path.extend([
+    str(ROOT / "mast3r"),                        # mast3r package
+    str(ROOT / "mast3r" / "dust3r"),             # the sub-package inside mast3r
+    str(ROOT / "smooth-diffusion"),              # smooth-diffusion package
+])
 
 import gradio
 from PIL import Image
@@ -27,78 +29,211 @@ from mast3r.demo import SparseGAState
 from mast3r.retrieval.processor import Retriever
 
 # add scene cam from dust3r
-from dust3r.viz import add_scene_cam
+from dust3r.viz import add_scene_cam,cat_meshes, pts3d_to_trimesh
 import tempfile
 
 # main demo rewritten functions
 from mast3r.cloud_opt.tsdf_optimizer import TSDFPostProcess
-from mast3r.demo import set_scenegraph_options,_convert_scene_output_to_glb
+from mast3r.demo import set_scenegraph_options
 from dust3r.utils.image import load_images
 from dust3r.utils.device import to_numpy
 import matplotlib.pyplot as pl
-
 
 OPENGL = np.array([[1, 0, 0, 0],
                    [0, -1, 0, 0],
                    [0, 0, -1, 0],
                    [0, 0, 0, 1]])
 
-def render_n_views_around_scene_fixed(scene_file, num_views=1):
-    rendered_imgs = []
+# testing functions
+# def render_n_views_around_scene_fixed(scene_file, num_views=9):
+#     rendered_imgs = []
 
-    # Compute the center of the scene using trimesh
-    scene_center = scene_file.centroid
-    scene_extent = scene_file.scale
-    radius = scene_extent * 1.5  # larger radius for better views
+#     # Compute the center of the scene using trimesh
+#     scene_center = scene_file.centroid
+#     scene_extent = scene_file.scale
+#     radius = scene_extent * 1.5  # larger radius for better views
 
-    for i in range(num_views):
-        # Calculate angle for counter-clockwise rotation
-        theta = 2 * np.pi * (num_views - i) / num_views
-        # Place camera in circle around scene, on x-y plane
-        cam_position = scene_center + radius * np.array([np.cos(theta), np.sin(theta), 0.2])
+#     for i in range(num_views):
+#         # Calculate angle for counter-clockwise rotation
+#         theta = 2 * np.pi * (num_views - i) / num_views
+#         # Place camera in circle around scene, on x-y plane
+#         cam_position = scene_center + radius * np.array([np.cos(theta), np.sin(theta), 0.2])
 
-        # Compute camera K matrix
-        K = np.eye(4)
-        K[0, 0] = 1  # Focal length in x
-        K[1, 1] = 1  # Focal length in y
-        K[0, 2] = cam_position[0]  # Principal point x
-        K[1, 2] = cam_position[1]  # Principal point y
-        K[2, 2] = 1  # Homogeneous coordinate
+#         # Compute camera K matrix
+#         K = np.eye(4)
+#         K[0, 0] = 1  # Focal length in x
+#         K[1, 1] = 1  # Focal length in y
+#         K[0, 2] = cam_position[0]  # Principal point x
+#         K[1, 2] = cam_position[1]  # Principal point y
+#         K[2, 2] = 1  # Homogeneous coordinate
 
-        # Compute look-at transform using K matrix
-        forward = scene_center - cam_position
-        forward /= np.linalg.norm(forward)
+#         # Compute look-at transform using K matrix
+#         forward = scene_center - cam_position
+#         forward /= np.linalg.norm(forward)
 
-        # Simple camera "up" direction
-        up = np.array([0, 0, 1])
-        right = np.cross(forward, up)
-        right /= np.linalg.norm(right)
-        up = np.cross(right, forward)
-        up /= np.linalg.norm(up)
+#         # Simple camera "up" direction
+#         up = np.array([0, 0, 1])
+#         right = np.cross(forward, up)
+#         right /= np.linalg.norm(right)
+#         up = np.cross(right, forward)
+#         up /= np.linalg.norm(up)
 
-        rot = np.stack([right, up, -forward], axis=1)
-        transform = np.eye(4)
-        transform[:3, :3] = rot @ K[:3, :3]
-        transform[:3, 3] = cam_position
+#         rot = np.stack([right, up, -forward], axis=1)
+#         transform = np.eye(4)
+#         transform[:3, :3] = rot @ K[:3, :3]
+#         transform[:3, 3] = cam_position
 
-        # Apply camera transform and render
-        scene_file.camera.transform = transform
-        try:
-            img_bytes = scene_file.save_image(resolution=(512, 512), visible=False)
-            img = Image.open(BytesIO(img_bytes))
-            rendered_imgs.append(img)
-        except Exception as e:
-            print(f"View {i} failed: {e}")
+#         # Apply camera transform and render
+#         cam = trimesh.scene.Camera(resolution=(512, 512), fov=(60, 60))
+#         scene_file.camera = cam                 # intrinsics
+#         scene_file.camera_transform = transform # pose
+#         try:
+#             img_bytes = scene_file.save_image(visible=False)
+#             img = Image.open(BytesIO(img_bytes))
+#             rendered_imgs.append(img)
+#         except Exception as e:
+#             print(f"View {i} failed: {e}")
     
-    return rendered_imgs
+#     return rendered_imgs
+
+
+def _convert_scene_output_to_glb(outfile, imgs, pts3d, mask, focals, cams2world, cam_size=0.05,
+                                 cam_color=None, as_pointcloud=False,
+                                 transparent_cams=False, silent=False) -> tuple[str, list[Image.Image]]:
+    """
+    convert the scene output to a glb file and a list of rendered images
+
+    parameters:
+        outfile: str, the output file name
+        imgs: list[Image.Image], the images
+        pts3d: list[np.ndarray], the 3D points
+        mask: list[np.ndarray], the mask
+        focals: list[float], the focal lengths
+        cams2world: list[np.ndarray], the camera poses
+        cam_size: float, the camera size
+        cam_color: list[tuple[int, int, int]], the camera color
+        as_pointcloud: bool, if True, return the pointcloud
+        transparent_cams: bool, if True, transparent the cameras
+        silent: bool, if True, no print
+
+    Returns:
+        outfile: str, the output file name
+        rendered_imgs: list[Image.Image], the rendered images
+    """         
+    assert len(pts3d) == len(mask) <= len(imgs) <= len(cams2world) == len(focals)
+    pts3d = to_numpy(pts3d)
+    imgs = to_numpy(imgs)
+    focals = to_numpy(focals)
+    cams2world = to_numpy(cams2world)
+
+    scene = trimesh.Scene()
+    print("DEBUG: As pointcloud is set to", as_pointcloud)
+
+    # full pointcloud
+    if as_pointcloud:
+        pts = np.concatenate([p[m.ravel()] for p, m in zip(pts3d, mask)]).reshape(-1, 3)
+        col = np.concatenate([p[m] for p, m in zip(imgs, mask)]).reshape(-1, 3)
+        valid_msk = np.isfinite(pts.sum(axis=1))
+        pct = trimesh.PointCloud(pts[valid_msk], colors=col[valid_msk])
+        scene.add_geometry(pct)
+    else:
+        print("DEBUG: outputting 3D model with color")
+        meshes = []
+        for i in range(len(imgs)):
+            pts3d_i = pts3d[i].reshape(imgs[i].shape)
+            msk_i = mask[i] & np.isfinite(pts3d_i.sum(axis=-1))
+            meshes.append(pts3d_to_trimesh(imgs[i], pts3d_i, msk_i))
+        mesh = trimesh.Trimesh(**cat_meshes(meshes))
+        scene.add_geometry(mesh)
+
+    if not transparent_cams:
+        # add each camera
+        for i, pose_c2w in enumerate(cams2world):
+            if isinstance(cam_color, list):
+                camera_edge_color = cam_color[i]
+            else:
+                camera_edge_color = cam_color or CAM_COLORS[i % len(CAM_COLORS)]
+            add_scene_cam(scene, pose_c2w, camera_edge_color,
+                        None if transparent_cams else imgs[i], focals[i],
+                        imsize=imgs[i].shape[1::-1], screen_width=cam_size)
+            
+    # also return the reconstructed scene as a gallery of image from different views of the scene
+    # imgs = render_n_views_around_scene_fixed(scene_file)
+    rendered_imgs = []
+    for transform, focal, img in zip(cams2world, focals, imgs):
+        screen_width = 0.03
+        if img is not None:
+            img = np.asarray(img)
+            H, W, THREE = img.shape
+            assert THREE == 3
+            if img.dtype != np.uint8:
+                img = np.uint8(255 * img)
+        elif focal is not None:
+            H = W = focal / 1.1
+        else:
+            H = W = 1
+
+        if isinstance(focal, np.ndarray):
+            focal = focal[0]
+
+        # create fake camera
+        height = max(screen_width / 10, focal * screen_width / H)
+        width = screen_width * 0.5 ** 0.5
+        rot45 = np.eye(4)
+        rot45[:3, :3] = Rotation.from_euler('z', np.deg2rad(45)).as_matrix()
+        rot45[2, 3] = -height  # set the tip of the cone = optical center
+        aspect_ratio = np.eye(4)
+        aspect_ratio[0, 0] = W / H
+        final_transform = transform @ OPENGL @ aspect_ratio
+
+        # === Render ===
+        try:
+            if focal is not None and focal > 0:
+                fx = fy = float(focal)
+                cam = trimesh.scene.Camera(resolution=(int(W), int(H)), focal=(fx, fy))
+            else:
+                DEFAULT_FOV = 60.0                      # deg; any reasonable value is fine
+                cam = trimesh.scene.Camera(resolution=(int(W), int(H)), fov=(DEFAULT_FOV, DEFAULT_FOV))
+            scene.camera = cam
+            scene.camera_transform = final_transform
+            # Debug
+            print(f'DEBUG: final_transform: {final_transform}')
+            print(f'DEBUG: focal: {focal}')
+            image_bytes = scene.save_image(resolution=(W, H), visible=False)
+            img_rendered = Image.open(BytesIO(image_bytes))
+            rendered_imgs.append(img_rendered)
+        except Exception as e:
+            print(f"Render failed: {e}")
+    print(f'DEBUG: received outfile: {outfile}')
+
+    # rotate the scene 180 degrees around the y-axis
+    rot = np.eye(4)
+    rot[:3, :3] = Rotation.from_euler('y', np.deg2rad(180)).as_matrix()
+    scene.apply_transform(np.linalg.inv(cams2world[0] @ OPENGL @ rot))
+    if not silent:
+        print('(exporting 3D scene to', outfile, ')')
+    scene.export(file_obj=outfile)
+    return outfile, rendered_imgs
 
 
 def get_3D_model_from_scene(silent, scene_state, min_conf_thr=2, as_pointcloud=False, mask_sky=False,
-                            clean_depth=False, transparent_cams=False, cam_size=0.05, TSDF_thresh=0):
+                            clean_depth=False, transparent_cams=False, cam_size=0.05, TSDF_thresh=0) -> tuple[str, list[Image.Image]]:
     """
     extract 3D_model (glb file) from a reconstructed scene
 
     To fit the project requirement, we extract the camera position and orientation from the scene as return value.
+
+    parameters:
+        silent: bool, if True, no print
+        scene_state: SparseGAState, the scene state
+        min_conf_thr: float, the minimum confidence threshold
+        as_pointcloud: bool, if True, return the pointcloud
+        mask_sky: bool, if True, mask the sky
+        clean_depth: bool, if True, clean the depth
+
+    Returns:
+        outfile: str, the output file name
+        rendered_imgs: list[Image.Image], the rendered images
     """
     if scene_state is None:
         return None
@@ -119,8 +254,9 @@ def get_3D_model_from_scene(silent, scene_state, min_conf_thr=2, as_pointcloud=F
     else:
         pts3d, _, confs = to_numpy(scene.get_dense_pts3d(clean_depth=clean_depth))
     msk = to_numpy([c > min_conf_thr for c in confs])
-    return _convert_scene_output_to_glb(outfile, rgbimg, pts3d, msk, focals, cams2world, as_pointcloud=as_pointcloud,
-                                        transparent_cams=transparent_cams, cam_size=cam_size, silent=silent),cams2world,focals,rgbimg
+    outfile, rendered_imgs = _convert_scene_output_to_glb(outfile, rgbimg, pts3d, msk, focals, cams2world, as_pointcloud=as_pointcloud,
+                                        transparent_cams=transparent_cams, cam_size=cam_size, silent=silent)
+    return outfile, rendered_imgs
 
 # rewrite get_reconstructed_scene to output gallery
 def get_reconstructed_scene(outdir, gradio_delete_cache, model, retrieval_model, device, silent, image_size,
@@ -182,57 +318,17 @@ def get_reconstructed_scene(outdir, gradio_delete_cache, model, retrieval_model,
         outfile_name = tempfile.mktemp(suffix='_scene.glb', dir=outdir)
 
     scene_state = SparseGAState(scene, gradio_delete_cache, cache_dir, outfile_name)
-    outfile,cams2world,focals,rgbimg = get_3D_model_from_scene(silent, scene_state, min_conf_thr, as_pointcloud, mask_sky,
+    outfile, imgs = get_3D_model_from_scene(silent, scene_state, min_conf_thr, as_pointcloud, mask_sky,
                                       clean_depth, transparent_cams, cam_size, TSDF_thresh)
-    
 
-    # also return the reconstructed scene as a gallery of image from different views of the scene
-    print(type(outfile))
+    # Ensure the scene is reloaded correctly for rendering
     scene_file = trimesh.load(outfile, force='scene')
-    imgs=render_n_views_around_scene_fixed(scene_file)
-    # for transform,focal,img in zip(cams2world,focals,rgbimg):
-    #     screen_width=0.03
-    #     if img is not None:
-    #         img = np.asarray(img)
-    #         H, W, THREE = img.shape
-    #         assert THREE == 3
-    #         if img.dtype != np.uint8:
-    #             img = np.uint8(255*img)
-    #     elif focal is not None:
-    #         H = W = focal / 1.1
-    #     else:
-    #         H = W = 1
 
-    #     if isinstance(focal, np.ndarray):
-    #         focal = focal[0]
+    # render basic view of the scene
+    basic_img = scene_file.save_image(resolution=(512, 512), visible=False)
+    basic_img = Image.open(BytesIO(basic_img))
 
-    #     # create fake camera
-    #     height = max( screen_width/10, focal * screen_width / H )
-    #     width = screen_width * 0.5**0.5
-    #     rot45 = np.eye(4)
-    #     rot45[:3, :3] = Rotation.from_euler('z', np.deg2rad(45)).as_matrix()
-    #     rot45[2, 3] = -height  # set the tip of the cone = optical center
-    #     aspect_ratio = np.eye(4)
-    #     aspect_ratio[0, 0] = W/H
-    #     final_transform = transform @ OPENGL @ aspect_ratio @ rot45
-    #     scene_file.camera.transform = final_transform 
-    #     if focal > 0:
-    #         fx = fy = focal
-    #         scene_file.camera.focal = (fx, fy)
-
-    #     # === Render ===
-    #     try:
-    #         # scene_file.camera.focal = (1/focal,1/focal)
-    #         # Debug
-    #         print(final_transform,final_transform,scene_file.camera.transform)
-    #         print(focal,scene_file.camera.focal)
-    #         image_bytes = scene_file.save_image(resolution=(W, H), visible=False)
-    #         img_rendered = Image.open(BytesIO(image_bytes))
-    #         imgs.append(img_rendered)
-    #     except Exception as e:
-    #         print(f"Render failed: {e}")
-
-    return scene, outfile, imgs
+    return scene, outfile, imgs, basic_img
 
 def main_demo(tmpdirname, model, retrieval_model, device, image_size, server_name, server_port, silent=False,
               share=False, gradio_delete_cache=False):
@@ -310,6 +406,8 @@ def main_demo(tmpdirname, model, retrieval_model, device, image_size, server_nam
 
             outmodel = gradio.Model3D()
 
+            outimage = gradio.Image(label='Output image')
+
             outgallery = gradio.Gallery(label='Output rendered images', columns=3, height="100%")
 
             # events
@@ -326,7 +424,7 @@ def main_demo(tmpdirname, model, retrieval_model, device, image_size, server_nam
                           inputs=[scene, inputfiles, optim_level, lr1, niter1, lr2, niter2, min_conf_thr, matching_conf_thr,
                                   as_pointcloud, mask_sky, clean_depth, transparent_cams, cam_size,
                                   scenegraph_type, winsize, win_cyclic, refid, TSDF_thresh, shared_intrinsics],
-                          outputs=[scene, outmodel, outgallery])
+                          outputs=[scene, outmodel, outgallery, outimage])
             min_conf_thr.release(fn=model_from_scene_fun,
                                  inputs=[scene, min_conf_thr, as_pointcloud, mask_sky,
                                          clean_depth, transparent_cams, cam_size, TSDF_thresh],
