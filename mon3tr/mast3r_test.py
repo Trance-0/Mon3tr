@@ -277,7 +277,7 @@ def get_reconstructed_scene(outdir, gradio_delete_cache, model, retrieval_model,
     scene = sparse_global_alignment(filelist, pairs, cache_dir,
                                     model, lr1=lr1, niter1=niter1, lr2=lr2, niter2=niter2, device=device,
                                     opt_depth='depth' in optim_level, shared_intrinsics=shared_intrinsics,
-                                    matching_conf_thr=matching_conf_thr, **kw)
+                                    matching_conf_thr=matching_conf_thr)
     if current_scene_state is not None and not current_scene_state.should_delete and current_scene_state.outfile_name is not None:
         outfile_name = current_scene_state.outfile_name
     else:

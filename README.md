@@ -30,11 +30,34 @@ Then we use the completed 2D image to reconstruct the 3D scene to obtain the ful
   - [x] 2D image pair generation with masks
 - [x] 2D image generation from 3D scene
   - [x] In-painting 2D image with smooth-diffusion
-- [ ] 3D scene reconstruction from incomplete 2D images
+- [x] 3D scene reconstruction from incomplete 2D images
 
-- [ ] Build a simple UI to show the process of the key functions
+- [x] Build a simple UI to show the process of the key functions
   - [x] 3D scene generation from 2D images
   - [x] 2D inpainting with smooth-diffusion
 
+## Evaluation
 
+This project don't work as expected.
 
+Possible reasons:
+
+- The 2D image generation model is not good at generating translating frame in the 3D scene.
+
+In majority of the cases, the 3D scene generated image is not good as a translational state of the movement of the camera, even with the correct camera pose, mask and 2D image.
+
+![3D scene generation from 2D images](./assets/interpolation_example.png)
+
+- The 3D scene reconstruction model is not good for general reconstruction scene, especially with the scene with reflective surface.
+
+![Wrong 3D scene reconstruction](./assets/Crash.png)
+
+But the pipeline is still working.
+
+## Demo
+
+Expected at least 8 GB of VRAM for running smooth-diffusion.
+
+```bash
+python mon3tr/demo.py
+```
