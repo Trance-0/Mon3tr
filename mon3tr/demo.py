@@ -938,7 +938,7 @@ def build_remast3r_tab(model: AsymmetricMASt3R, device: torch.device, inpaint_st
             transparent_cams=transparent_cams,
         )
         # store masks so the Smooth tab can see them
-        return outfile, imgs, basic_img
+        return outfile, basic_img, imgs
 
     silent = True
     retrieval_model = None
